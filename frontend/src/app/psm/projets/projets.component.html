@@ -1,0 +1,239 @@
+<app-page-header title="Projets"></app-page-header>
+
+<div class="row">
+  <div class="col-lg-12">
+    <div class="card">
+      <div class="card-header border-0">
+        <div class="row g-3 align-items-center">
+          <div class="col-sm">
+            <h5 class="card-title mb-0">Liste des projets <span class="badge bg-primary ms-1">{{ filtered.length }}</span></h5>
+          </div>
+          <div class="col-sm-auto d-flex flex-wrap gap-2">
+            <select class="form-select w-auto" [(ngModel)]="clientFilter" (ngModelChange)="page = 1">
+              <option value="">Tous les clients</option>
+              <option *ngFor="let c of clients" [value]="c.id">{{ c.nom }}</option>
+            </select>
+            <select class="form-select w-auto" [(ngModel)]="statutFilter" (ngModelChange)="page = 1">
+              <option value="">Tous les statuts</option>
+              <option *ngFor="let s of statuts" [value]="s.value">{{ s.label }}</option>
+            </select>
+            <select class="form-select w-auto" [(ngModel)]="risqueFilter" (ngModelChange)="page = 1">
+              <option value="">Tous les risques</option>
+              <option *ngFor="let r of risques" [value]="r.value">Risque {{ r.label.toLowerCase() }}</option>
+            </select>
+            <div class="search-box">
+              <input type="text" class="form-control" placeholder="Rechercher..." [(ngModel)]="search" (ngModelChange)="page = 1">
+              <i class="ri-search-line search-icon"></i>
+            </div>
+            <app-export-buttons (export)="export($event)"></app-export-buttons>
+            <!-- Ajout autorise pour ADMIN et COLLABORATEUR -->
+            <button type="button" class="btn btn-success" (click)="openForm()">
+              <i class="ri-add-line align-bottom me-1"></i> Ajouter un projet
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body pt-0">
+        <div class="alert alert-danger" *ngIf="error">{{ error }}</div>
+        <div class="text-center py-4" *ngIf="loading"><div class="spinner-border text-primary"></div></div>
+
+        <div class="table-responsive table-card mb-3" *ngIf="!loading">
+          <table class="table table-nowrap align-middle mb-0">
+            <thead class="table-light text-muted">
+              <tr>
+                <th>#</th>
+                <th>Libelle</th>
+                <th>Client</th>
+                <th>Statut</th>
+                <th class="text-end">Budget</th>
+                <th>Fin prevue</th>
+                <th style="min-width:130px">Avancement</th>
+                <th>Risque</th>
+                <th class="text-end" *ngIf="isAdmin">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let p of paged">
+                <td>{{ p.id }}</td>
+                <td class="fw-medium">{{ p.libelle }}</td>
+                <td><span class="badge bg-soft-primary text-primary">{{ p.clientNom }}</span></td>
+                <td><span class="badge" [ngClass]="badge(p.statut)">{{ statutLabel(p.statut) }}</span></td>
+                <td class="text-end">{{ p.budget | number:'1.0-2' }} DT</td>
+                <td>
+                  {{ p.dateFinPrevue | date:'dd/MM/yyyy' }}
+                  <div class="fs-12" *ngIf="p.risque && p.statut !== 'TERMINE'"
+                    [ngClass]="p.risque.joursRestants < 0 ? 'text-danger' : 'text-muted'">
+                    {{ p.risque.joursRestants < 0 ? 'retard de ' + (-p.risque.joursRestants) + ' j' : p.risque.joursRestants + ' j restants' }}
+                  </div>
+                </td>
+                <td>
+                  <div class="progress progress-sm">
+                    <div class="progress-bar" [ngClass]="p.statut === 'TERMINE' ? 'bg-success' : 'bg-primary'"
+                      [style.width.%]="p.avancement || 0"></div>
+                  </div>
+                  <span class="fs-12 text-muted">{{ p.avancement || 0 }} %</span>
+                </td>
+                <td>
+                  <button type="button" class="btn btn-sm p-0 border-0" title="Voir l'analyse du risque"
+                    (click)="openDetail(p, detailModal)">
+                    <span class="badge" [ngClass]="risqueInfo(p.risque?.niveau).badge">
+                      {{ risqueInfo(p.risque?.niveau).label }}<ng-container *ngIf="p.risque && p.risque.niveau !== 'NON_EVALUE' && p.statut !== 'TERMINE'"> ({{ p.risque.score }})</ng-container>
+                    </span>
+                  </button>
+                </td>
+                <!-- Modifier / Supprimer : ADMIN uniquement -->
+                <td class="text-end" *ngIf="isAdmin">
+                  <button class="btn btn-sm btn-soft-primary me-1" title="Modifier" (click)="openForm(p)">
+                    <i class="ri-pencil-fill"></i>
+                  </button>
+                  <button class="btn btn-sm btn-soft-danger" title="Supprimer" (click)="remove(p)">
+                    <i class="ri-delete-bin-5-fill"></i>
+                  </button>
+                </td>
+              </tr>
+              <tr *ngIf="filtered.length === 0">
+                <td [attr.colspan]="isAdmin ? 9 : 8" class="text-center text-muted py-4">Aucun projet trouve.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="d-flex justify-content-end" *ngIf="filtered.length > pageSize">
+          <ngb-pagination [collectionSize]="filtered.length" [(page)]="page" [pageSize]="pageSize"
+            [maxSize]="5" [rotate]="true" size="sm"></ngb-pagination>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal ajout / modification -->
+<ng-template #formModal let-modal>
+  <div class="modal-header bg-light p-3">
+    <h5 class="modal-title">{{ editingId ? 'Modifier le projet' : 'Ajouter un projet' }}</h5>
+    <button type="button" class="btn-close" aria-label="Fermer" (click)="modal.dismiss()"></button>
+  </div>
+  <form [formGroup]="form" (ngSubmit)="save()" novalidate>
+    <div class="modal-body">
+      <div class="alert alert-danger" *ngIf="formError">{{ formError }}</div>
+
+      <div class="mb-3">
+        <label class="form-label" for="p-libelle">Libelle <span class="text-danger">*</span></label>
+        <input type="text" id="p-libelle" class="form-control" formControlName="libelle"
+          [ngClass]="{ 'is-invalid': submitted && form.controls['libelle'].errors }">
+        <div class="invalid-feedback">Le libelle est obligatoire</div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label" for="p-client">Client <span class="text-danger">*</span></label>
+        <select id="p-client" class="form-select" formControlName="clientId"
+          [ngClass]="{ 'is-invalid': submitted && form.controls['clientId'].errors }">
+          <option [ngValue]="null" disabled>-- Choisir un client --</option>
+          <option *ngFor="let c of clients" [ngValue]="c.id">{{ c.nom }}</option>
+        </select>
+        <div class="invalid-feedback">Le client est obligatoire</div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label" for="p-budget">Budget (DT) <span class="text-danger">*</span></label>
+          <input type="number" id="p-budget" class="form-control" formControlName="budget" min="0"
+            [ngClass]="{ 'is-invalid': submitted && form.controls['budget'].errors }">
+          <div class="invalid-feedback">Budget positif obligatoire</div>
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label" for="p-duree">Duree (mois) <span class="text-danger">*</span></label>
+          <input type="number" id="p-duree" class="form-control" formControlName="duree" min="1"
+            [ngClass]="{ 'is-invalid': submitted && form.controls['duree'].errors }">
+          <div class="invalid-feedback">Duree obligatoire (>= 1)</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label" for="p-debut">Date de debut</label>
+          <input type="date" id="p-debut" class="form-control" formControlName="dateDebut">
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label" for="p-fin">Date de fin prevue <span class="text-danger">*</span></label>
+          <input type="date" id="p-fin" class="form-control" formControlName="dateFinPrevue"
+            [ngClass]="{ 'is-invalid': submitted && form.controls['dateFinPrevue'].errors }">
+          <div class="invalid-feedback">La date de fin prevue est obligatoire</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label" for="p-av">Avancement : <b>{{ form.value.avancement || 0 }} %</b></label>
+          <input type="range" id="p-av" class="form-range" min="0" max="100" step="5" formControlName="avancement">
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label" for="p-conso">Budget consomme (DT)</label>
+          <input type="number" id="p-conso" class="form-control" formControlName="budgetConsomme" min="0">
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label" for="p-statut">Statut</label>
+        <select id="p-statut" class="form-select" formControlName="statut">
+          <option *ngFor="let s of statuts" [value]="s.value">{{ s.label }}</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label" for="p-desc">Description</label>
+        <textarea id="p-desc" class="form-control" rows="3" formControlName="description"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-light" (click)="modal.dismiss()">Annuler</button>
+      <button type="submit" class="btn btn-success" [disabled]="saving">
+        <span class="spinner-border spinner-border-sm me-1" *ngIf="saving"></span>
+        {{ editingId ? 'Enregistrer' : 'Ajouter' }}
+      </button>
+    </div>
+  </form>
+</ng-template>
+
+<!-- Modal : analyse du risque -->
+<ng-template #detailModal let-modal>
+  <div class="modal-header bg-light p-3">
+    <h5 class="modal-title">Analyse du risque</h5>
+    <button type="button" class="btn-close" aria-label="Fermer" (click)="modal.dismiss()"></button>
+  </div>
+  <div class="modal-body" *ngIf="detail as d">
+    <h6 class="mb-1">{{ d.libelle }}</h6>
+    <p class="text-muted">{{ d.clientNom }} &mdash; {{ statutLabel(d.statut) }}</p>
+
+    <div class="d-flex align-items-center mb-3">
+      <span class="badge fs-14 me-2" [ngClass]="risqueInfo(d.risque?.niveau).badge">
+        Risque {{ risqueInfo(d.risque?.niveau).label.toLowerCase() }}</span>
+      <span class="text-muted" *ngIf="d.risque?.niveau !== 'NON_EVALUE'">Score : <b>{{ d.risque?.score }}</b> / 100</span>
+    </div>
+
+    <div class="alert alert-light border">{{ d.risque?.message }}</div>
+
+    <ng-container *ngIf="d.risque && d.risque.niveau !== 'NON_EVALUE'">
+      <div class="mb-3">
+        <div class="d-flex justify-content-between"><span>Temps ecoule</span><b>{{ d.risque.pctTemps | number:'1.0-0' }} %</b></div>
+        <div class="progress progress-sm"><div class="progress-bar bg-warning" [style.width.%]="d.risque.pctTemps > 100 ? 100 : d.risque.pctTemps"></div></div>
+      </div>
+      <div class="mb-3">
+        <div class="d-flex justify-content-between"><span>Avancement</span><b>{{ d.avancement || 0 }} %</b></div>
+        <div class="progress progress-sm"><div class="progress-bar bg-success" [style.width.%]="d.avancement || 0"></div></div>
+      </div>
+      <table class="table table-sm table-borderless mb-0">
+        <tr><td class="text-muted">Debut</td><td class="text-end">{{ d.dateDebut | date:'dd/MM/yyyy' }}</td></tr>
+        <tr><td class="text-muted">Fin prevue</td><td class="text-end">{{ d.dateFinPrevue | date:'dd/MM/yyyy' }}</td></tr>
+        <tr><td class="text-muted">{{ d.risque.enRetard ? 'Retard' : 'Jours restants' }}</td>
+          <td class="text-end">{{ d.risque.enRetard ? -d.risque.joursRestants : d.risque.joursRestants }} j</td></tr>
+        <tr *ngIf="d.risque.dateFinEstimee"><td class="text-muted">Fin estimee (au rythme actuel)</td>
+          <td class="text-end">{{ d.risque.dateFinEstimee | date:'dd/MM/yyyy' }}</td></tr>
+        <tr *ngIf="d.budgetConsomme != null"><td class="text-muted">Budget consomme</td>
+          <td class="text-end">{{ d.budgetConsomme | number:'1.0-0' }} / {{ d.budget | number:'1.0-0' }} DT</td></tr>
+      </table>
+    </ng-container>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" (click)="modal.dismiss()">Fermer</button></div>
+</ng-template>
